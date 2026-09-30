@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Look Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a filter library rail beside a contact sheet of image cards, each a before/after split. */
+:root {
+  --bg: #e9ecef;
+  --surface: #ffffff;
+  --sunken: #f3f5f7;
+  --ink: #15191e;
+  --muted: #5b6570;
+  --line: #d3d9df;
+  --accent: #2c55d8;
+  --accent-ink: #ffffff;
+  --accent-soft: #e3e9fb;
+  --danger: #b42318;
+  --shadow: 0 1px 2px rgb(20 30 45 / 0.06), 0 4px 16px rgb(20 30 45 / 0.06);
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131619; --surface: #1c2024; --sunken: #171a1e; --ink: #e6e9ec; --muted: #98a2ad;
+    --line: #2d3339; --accent: #7d9bff; --accent-ink: #0d1330; --accent-soft: #1f2947;
+    --danger: #ff8a7a; --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 20px rgb(0 0 0 / 0.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131619; --surface: #1c2024; --sunken: #171a1e; --ink: #e6e9ec; --muted: #98a2ad;
+  --line: #2d3339; --accent: #7d9bff; --accent-ink: #0d1330; --accent-soft: #1f2947;
+  --danger: #ff8a7a; --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 20px rgb(0 0 0 / 0.25);
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 400 14px/1.5 var(--font-body);
+  padding-inline: 16px; padding-block: 20px 48px;
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; grid-template-columns: 300px minmax(0, 1fr); align-items: start; }
+@media (max-width: 860px) { .app { grid-template-columns: minmax(0, 1fr); } }
+
+.masthead { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.masthead h1 { font: 700 28px/1.1 var(--font-display); letter-spacing: -0.02em; margin: 0; }
+.masthead p { margin: 0; color: var(--muted); max-width: 62ch; }
+.privacy { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-left: auto; }
+
+.eyebrow { font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); padding-inline: 8px; }
+.btn.ghost:hover { color: var(--ink); background: var(--sunken); }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.small { padding: 4px 8px; font-size: 13px; }
+
+/* Filter library */
+.library { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); display: grid; gap: 0; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 860px) { .library { position: static; } }
+.library-head { padding: 16px 16px 12px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
+.library-head h2 { font: 700 18px/1.2 var(--font-display); margin: 0; }
+.library-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.filter-list { list-style: none; margin: 0; padding: 6px; display: grid; gap: 2px; max-height: 60vh; overflow-y: auto; }
+.filter-item { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 8px; }
+.filter-item:hover { background: var(--sunken); }
+.filter-thumb { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; background: var(--sunken); display: block; }
+.filter-meta { min-width: 0; display: grid; gap: 4px; }
+.filter-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-name .tag { font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; margin-left: 6px; vertical-align: 2px; }
+.swatches { display: flex; gap: 3px; }
+.swatch { width: 18px; height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.25); }
+.filter-sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.filter-actions { display: flex; gap: 2px; }
+.filter-actions .btn.small { padding: 2px 6px; font-size: 12px; }
+.filter-item input[type="text"] { width: 100%; border: 1px solid var(--accent); border-radius: 6px; padding: 3px 6px; background: var(--surface); }
+.confirm { font-size: 13px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.library-foot { display: flex; gap: 6px; padding: 10px 12px 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.empty-note { color: var(--muted); padding: 16px; font-size: 13px; }
+
+.draft { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--accent-soft); display: grid; gap: 10px; }
+.draft-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; align-items: center; }
+.draft img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; }
+.draft label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.draft input { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--surface); min-width: 0; }
+.draft .zones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.zone { display: grid; gap: 4px; font: 400 11px/1.2 var(--font-mono); color: var(--muted); }
+.zone span:first-child { height: 20px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.25); }
+.draft-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* Workspace */
+.workspace { display: grid; gap: 16px; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow); }
+.toolbar .spacer { flex: 1; }
+.toolbar label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--surface); max-width: 100%; }
+.count { font: 400 12px/1 var(--font-mono); color: var(--muted); }
+
+.dropzone { border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 18px; text-align: center; color: var(--muted); background: var(--sunken); cursor: pointer; }
+.dropzone strong { color: var(--ink); }
+.dropzone.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: grid; box-shadow: var(--shadow); min-width: 0; }
+.compare { position: relative; background: var(--sunken); line-height: 0; user-select: none; touch-action: pan-y; }
+.compare canvas { width: 100%; height: auto; display: block; max-width: 100%; }
+.compare .before { position: absolute; inset: 0; height: 100%; clip-path: inset(0 calc(100% - var(--split, 50%)) 0 0); }
+.compare .divider { position: absolute; top: 0; bottom: 0; left: var(--split, 50%); width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25); pointer-events: none; }
+.compare .divider::after { content: ""; position: absolute; top: 50%; left: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.35); }
+.compare input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+.compare .chip { position: absolute; top: 8px; font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; background: rgb(0 0 0 / 0.55); color: #fff; padding: 4px 6px; border-radius: 4px; pointer-events: none; }
+.compare .chip.l { left: 8px; } .compare .chip.r { right: 8px; }
+.compare.busy::after { content: "Processing…"; position: absolute; inset: auto 8px 8px auto; font: 500 11px/1 var(--font-mono); background: rgb(0 0 0 / 0.6); color: #fff; padding: 5px 7px; border-radius: 4px; }
+.card-body { padding: 12px 14px 14px; display: grid; gap: 10px; }
+.card-title { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; min-width: 0; }
+.card-title .name { font: 500 13px/1.3 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card-title .dims { font: 400 12px/1.3 var(--font-mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.card-title .sample { font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; margin-left: 6px; }
+.field { display: grid; grid-template-columns: 64px minmax(0, 1fr) 42px; gap: 10px; align-items: center; font-size: 13px; }
+.field > span:first-child { color: var(--muted); }
+.field output { font: 400 12px/1 var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.field select { width: 100%; }
+.field.select { grid-template-columns: 64px minmax(0, 1fr); }
+input[type="range"] { accent-color: var(--accent); width: 100%; min-width: 0; }
+.card-actions { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); max-width: calc(100vw - 32px); z-index: 10; }
+@media (prefers-reduced-motion: no-preference) { .toast { transition: opacity 0.2s; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="masthead">
+    <h1>Look Lab</h1>
+    <p>Save the color and tone of a reference photo as a filter, then apply it to any image.</p>
+    <span class="privacy">Images are processed on this device and never uploaded.</span>
+  </header>
+
+  <aside class="library" aria-labelledby="lib-title">
+    <div class="library-head">
+      <h2 id="lib-title">Filters</h2>
+      <p>Choose a reference photo. Its shadows, midtones and highlights become a reusable filter.</p>
+      <button class="btn primary" id="new-filter" type="button">New filter from reference</button>
+      <input type="file" id="ref-input" accept="image/*" hidden>
+    </div>
+    <div id="draft" class="draft" hidden></div>
+    <ul class="filter-list" id="filter-list"></ul>
+    <div class="library-foot">
+      <button class="btn small" id="export-filters" type="button">Export filters</button>
+      <button class="btn small" id="import-filters" type="button">Import filters</button>
+      <input type="file" id="import-input" accept=".json,application/json" hidden>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <div class="toolbar">
+      <button class="btn primary" id="add-images" type="button">Add images</button>
+      <input type="file" id="img-input" accept="image/*" multiple hidden>
+      <label for="apply-all">Set every image to
+        <select id="apply-all"></select>
+      </label>
+      <span class="spacer"></span>
+      <span class="count" id="count"></span>
+      <button class="btn" id="save-all" type="button">Save all</button>
+    </div>
+    <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Add images"><strong>Drop images here</strong> or click to choose. JPEG, PNG and WebP work.</div>
+    <section class="grid" id="grid" aria-label="Images"></section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="filter-engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

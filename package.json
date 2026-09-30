@@ -1,0 +1,9 @@
+{
+  "name": "look-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser tool that learns color & tone filters from reference photos and applies them to images.",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
