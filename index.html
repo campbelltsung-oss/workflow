@@ -133,24 +133,70 @@ select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; ba
 .card-title .name { font: 500 13px/1.3 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .card-title .dims { font: 400 12px/1.3 var(--font-mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .card-title .sample { font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; margin-left: 6px; }
-.field { display: grid; grid-template-columns: 64px minmax(0, 1fr) 42px; gap: 10px; align-items: center; font-size: 13px; }
+.field { display: grid; grid-template-columns: 76px minmax(0, 1fr) 44px; gap: 10px; align-items: center; font-size: 13px; }
 .field > span:first-child { color: var(--muted); }
 .field output { font: 400 12px/1 var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .field select { width: 100%; }
-.field.select { grid-template-columns: 64px minmax(0, 1fr); }
+.field.select { grid-template-columns: 76px minmax(0, 1fr); }
 input[type="range"] { accent-color: var(--accent); width: 100%; min-width: 0; }
 .card-actions { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
 
+/* AI + adjustments */
+body:not([data-ai="on"]) .ai-only { display: none !important; }
+.toolbar-ai { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-off-note { font-size: 12px; color: var(--muted); }
+.btn.ai-btn { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.btn.ai-btn:hover { filter: brightness(1.05); }
+.ai-row { display: grid; gap: 6px; }
+.ai-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.ai-note { margin: 0; font-size: 13px; color: var(--muted); min-height: 0; }
+.ai-note:empty { display: none; }
+.ai-note[data-kind="done"] { color: var(--ink); }
+.ai-note[data-kind="error"] { color: var(--danger); }
+.compare.thinking::after { content: "Claude is looking…"; position: absolute; inset: auto 8px 8px auto; font: 500 11px/1 var(--font-mono); background: rgb(0 0 0 / 0.6); color: #fff; padding: 5px 7px; border-radius: 4px; }
+@media (prefers-reduced-motion: no-preference) { .compare.thinking canvas.after { animation: pulse 1.6s ease-in-out infinite; } }
+@keyframes pulse { 50% { opacity: 0.75; } }
+.adjust { border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.adjust summary { cursor: pointer; padding: 7px 10px; display: flex; justify-content: space-between; gap: 8px; font-weight: 500; font-size: 13px; }
+.adjust summary .changed { font: 400 12px/1.4 var(--font-mono); color: var(--accent); }
+.adjust-body { padding: 4px 10px 10px; display: grid; gap: 6px; }
+.adjust-body .eyebrow { margin-top: 6px; }
+.adjust-foot { display: flex; justify-content: flex-end; }
+.group-label { margin-top: 2px; }
+
 .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); max-width: calc(100vw - 32px); z-index: 10; }
-@media (prefers-reduced-motion: no-preference) { .toast { transition: opacity 0.2s; } }
+@media (prefers-reduced-motion: no-preference) { /* AI + adjustments */
+body:not([data-ai="on"]) .ai-only { display: none !important; }
+.toolbar-ai { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-off-note { font-size: 12px; color: var(--muted); }
+.btn.ai-btn { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.btn.ai-btn:hover { filter: brightness(1.05); }
+.ai-row { display: grid; gap: 6px; }
+.ai-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.ai-note { margin: 0; font-size: 13px; color: var(--muted); min-height: 0; }
+.ai-note:empty { display: none; }
+.ai-note[data-kind="done"] { color: var(--ink); }
+.ai-note[data-kind="error"] { color: var(--danger); }
+.compare.thinking::after { content: "Claude is looking…"; position: absolute; inset: auto 8px 8px auto; font: 500 11px/1 var(--font-mono); background: rgb(0 0 0 / 0.6); color: #fff; padding: 5px 7px; border-radius: 4px; }
+@media (prefers-reduced-motion: no-preference) { .compare.thinking canvas.after { animation: pulse 1.6s ease-in-out infinite; } }
+@keyframes pulse { 50% { opacity: 0.75; } }
+.adjust { border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.adjust summary { cursor: pointer; padding: 7px 10px; display: flex; justify-content: space-between; gap: 8px; font-weight: 500; font-size: 13px; }
+.adjust summary .changed { font: 400 12px/1.4 var(--font-mono); color: var(--accent); }
+.adjust-body { padding: 4px 10px 10px; display: grid; gap: 6px; }
+.adjust-body .eyebrow { margin-top: 6px; }
+.adjust-foot { display: flex; justify-content: flex-end; }
+.group-label { margin-top: 2px; }
+
+.toast { transition: opacity 0.2s; } }
 </style>
 </head>
 <body>
 <div class="app">
   <header class="masthead">
     <h1>Look Lab</h1>
-    <p>Save the color and tone of a reference photo as a filter, then apply it to any image.</p>
-    <span class="privacy">Images are processed on this device and never uploaded.</span>
+    <p>Let Claude correct each photo, then apply a look learned from a reference photo.</p>
+    <span class="privacy">Edits run on this device. AI enhance sends Claude a preview only.</span>
   </header>
 
   <aside class="library" aria-labelledby="lib-title">
@@ -176,6 +222,17 @@ input[type="range"] { accent-color: var(--accent); width: 100%; min-width: 0; }
       <label for="apply-all">Set every image to
         <select id="apply-all"></select>
       </label>
+      <span class="toolbar-ai ai-only">
+        <button class="btn ai-btn" id="enhance-all" type="button">Enhance all with AI</button>
+        <label for="ai-aim">Aim
+          <select id="ai-aim">
+            <option value="natural">Natural</option>
+            <option value="polished">Polished</option>
+            <option value="bold">Bold</option>
+          </select>
+        </label>
+      </span>
+      <span class="ai-off-note" id="ai-off-note"></span>
       <span class="spacer"></span>
       <span class="count" id="count"></span>
       <button class="btn" id="save-all" type="button">Save all</button>

@@ -12,6 +12,11 @@
  *    graded like the darkest third of the reference. This captures split
  *    toning such as teal shadows with warm highlights.
  *
+ * Before a look is applied, an image can get base adjustments (exposure,
+ * white balance, contrast, highlights/shadows, whites/blacks, vibrance,
+ * saturation). The AI enhance feature picks these; they are ordinary
+ * parameters, so every edit stays visible and editable.
+ *
  * Works in the browser (window.FilterEngine) and in Node (require).
  */
 (function (root, factory) {
@@ -53,7 +58,10 @@
   const finv = (t) => (t > 0.206893 ? t * t * t : (t - 16 / 116) / 7.787);
 
   function rgbToLab(r, g, b, out) {
-    const R = toLin[r], G = toLin[g], B = toLin[b];
+    return linToLab(toLin[r], toLin[g], toLin[b], out);
+  }
+
+  function linToLab(R, G, B, out) {
     const fx = f((0.4124564 * R + 0.3575761 * G + 0.1804375 * B) / Xn);
     const fy = f(0.2126729 * R + 0.7151522 * G + 0.072175 * B);
     const fz = f((0.0193339 * R + 0.119192 * G + 0.9503041 * B) / Zn);
@@ -88,11 +96,13 @@
   /**
    * Measure an image's tone and color statistics.
    * @param {Uint8ClampedArray|Uint8Array} data RGBA pixels
-   * @returns {{lq:number[], zones:{a:number,b:number,sa:number,sb:number}[], cdf:Float32Array}}
+   * @param {object} [adj] prepareAdjust() result, to measure the adjusted image
+   * @returns {{lq:number[], zones:{a:number,b:number,sa:number,sb:number}[], cdf:Float32Array,
+   *   clipLow:number, clipHigh:number, chroma:number}}
    *   lq and zones define a filter; cdf is needed when this image is the one
-   *   being edited.
+   *   being edited; the rest describe the image for the AI.
    */
-  function analyze(data) {
+  function analyze(data, adj) {
     const n = data.length >> 2;
     const step = Math.max(1, Math.floor(n / MAX_SAMPLES));
     const cap = Math.ceil(n / step);
@@ -102,7 +112,7 @@
     for (let i = 0; i < n; i += step) {
       const o = i << 2;
       if (data[o + 3] < 128) continue;
-      rgbToLab(data[o], data[o + 1], data[o + 2], lab);
+      pixelLab(data, o, adj, lab);
       Ls[m] = lab[0]; As[m] = lab[1]; Bs[m] = lab[2];
       m++;
     }
@@ -121,6 +131,13 @@
     const lq = new Array(QUANTILES);
     for (let k = 0; k < QUANTILES; k++) {
       lq[k] = round2(sorted[Math.round((k / (QUANTILES - 1)) * (m - 1))]);
+    }
+
+    let clipLow = 0, clipHigh = 0, chroma = 0;
+    for (let i = 0; i < m; i++) {
+      if (Ls[i] < 2) clipLow++;
+      else if (Ls[i] > 98) clipHigh++;
+      chroma += Math.hypot(As[i], Bs[i]);
     }
 
     const acc = [0, 1, 2].map(() => ({ w: 0, a: 0, b: 0, aa: 0, bb: 0 }));
@@ -142,7 +159,7 @@
         sb: round2(Math.sqrt(Math.max(0, s.bb / s.w - b * b))),
       };
     });
-    return { lq, zones, cdf };
+    return { lq, zones, cdf, clipLow: clipLow / m, clipHigh: clipHigh / m, chroma: chroma / m };
   }
 
   function round2(v) { return Math.round(v * 100) / 100; }
@@ -209,14 +226,27 @@
     return { toneLut, wLut, zp, zt, color, identity: tone === 0 && color === 0 };
   }
 
-  /** Apply a prepared look to RGBA pixels. Writes into `out` (may equal `data`). */
-  function apply(data, prep, out) {
+  /**
+   * Apply base adjustments and/or a prepared look to RGBA pixels.
+   * Either may be null. Writes into `out` (may equal `data`).
+   */
+  function render(data, adj, prep, out) {
     out = out || new Uint8ClampedArray(data.length);
-    if (prep.identity) { if (out !== data) out.set(data); return out; }
-    const { toneLut, wLut, zp, zt, color } = prep;
+    if (adj && adj.identity) adj = null;
+    if (prep && prep.identity) prep = null;
+    if (!adj && !prep) { if (out !== data) out.set(data); return out; }
     const lab = [0, 0, 0], rgb = [0, 0, 0];
+    if (!prep) {
+      for (let o = 0; o < data.length; o += 4) {
+        pixelLab(data, o, adj, lab);
+        labToRgb(lab[0], lab[1], lab[2], rgb);
+        out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2]; out[o + 3] = data[o + 3];
+      }
+      return out;
+    }
+    const { toneLut, wLut, zp, zt, color } = prep;
     for (let o = 0; o < data.length; o += 4) {
-      rgbToLab(data[o], data[o + 1], data[o + 2], lab);
+      pixelLab(data, o, adj, lab);
       const L = lab[0], a = lab[1], b = lab[2];
       const bin = binOf(L);
       const w0 = wLut[bin * 3], w1 = wLut[bin * 3 + 1], w2 = wLut[bin * 3 + 2];
@@ -231,6 +261,84 @@
       labToRgb(L + toneLut[bin], a + color * (a2 - a), b + color * (b2 - b), rgb);
       out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2]; out[o + 3] = data[o + 3];
     }
+    return out;
+  }
+
+  /** Apply a prepared look only (kept for callers that don't adjust). */
+  function apply(data, prep, out) { return render(data, null, prep, out); }
+
+  // ---------- Base adjustments ----------
+
+  /** Neutral settings. Ranges: exposure -2..2 EV, everything else -100..100. */
+  const ADJUST_DEFAULTS = Object.freeze({
+    exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
+    temperature: 0, tint: 0, vibrance: 0, saturation: 0,
+  });
+  const ADJUST_RANGES = Object.freeze({
+    exposure: [-2, 2], contrast: [-100, 100], highlights: [-100, 100], shadows: [-100, 100],
+    whites: [-100, 100], blacks: [-100, 100], temperature: [-100, 100], tint: [-100, 100],
+    vibrance: [-100, 100], saturation: [-100, 100],
+  });
+  const CURVE_MAX = 170;   // L range covered by the tone curve (exposure can push past 100)
+  const CURVE_N = 1700;
+
+  /** Clamp and fill in a settings object; unknown keys are dropped. */
+  function normalizeAdjust(p) {
+    const out = {};
+    for (const k of Object.keys(ADJUST_DEFAULTS)) {
+      const v = Number(p && p[k]);
+      const [lo, hi] = ADJUST_RANGES[k];
+      out[k] = Number.isFinite(v) ? clamp(v, lo, hi) : 0;
+    }
+    return out;
+  }
+
+  function prepareAdjust(params) {
+    const p = normalizeAdjust(params);
+    const identity = Object.keys(p).every((k) => p[k] === 0);
+    // White balance as linear-light channel gains, normalized to keep luminance
+    let gr = Math.exp(0.0025 * p.temperature), gb = Math.exp(-0.0025 * p.temperature);
+    let gg = Math.exp(-0.002 * p.tint);
+    const norm = 0.2126 * gr + 0.7152 * gg + 0.0722 * gb;
+    const ev = Math.pow(2, p.exposure);
+    gr *= ev / norm; gg *= ev / norm; gb *= ev / norm;
+
+    const c = p.contrast / 100, hi = p.highlights / 100, sh = p.shadows / 100;
+    const wh = p.whites / 100, bl = p.blacks / 100;
+    const curve = new Float32Array(CURVE_N + 1);
+    let prev = 0;
+    for (let i = 0; i <= CURVE_N; i++) {
+      const x = (i / CURVE_N) * (CURVE_MAX / 100);
+      const xc = Math.min(x, 1);
+      let y = xc;
+      y += c * 0.7 * (xc * xc * (3 - 2 * xc) - xc);
+      y += sh * 0.22 * 6.75 * xc * (1 - xc) * (1 - xc);
+      y += hi * 0.22 * 6.75 * xc * xc * (1 - xc);
+      y += wh * 0.15 * xc * xc * xc;
+      y += bl * 0.15 * (1 - xc) * (1 - xc) * (1 - xc);
+      y += x - xc;                       // light pushed past white by exposure
+      if (y > 0.92) y = 0.92 + 0.08 * Math.tanh((y - 0.92) / 0.08); // highlight roll-off
+      y = Math.max(prev, Math.max(0, y));
+      prev = y;
+      curve[i] = y * 100;
+    }
+    return {
+      identity, params: p, gains: [gr, gg, gb], curve,
+      sat: 1 + p.saturation / 100, vib: p.vibrance / 100,
+    };
+  }
+
+  // One pixel to Lab, with base adjustments when given
+  function pixelLab(data, o, adj, out) {
+    if (!adj || adj.identity) return rgbToLab(data[o], data[o + 1], data[o + 2], out);
+    const g = adj.gains;
+    linToLab(toLin[data[o]] * g[0], toLin[data[o + 1]] * g[1], toLin[data[o + 2]] * g[2], out);
+    const x = clamp(out[0], 0, CURVE_MAX) * (CURVE_N / CURVE_MAX);
+    const i = Math.min(CURVE_N - 1, x | 0), t = x - i;
+    out[0] = adj.curve[i] * (1 - t) + adj.curve[i + 1] * t;
+    const C = Math.hypot(out[1], out[2]);
+    const k = adj.sat * (1 + adj.vib * 0.6 * (1 - Math.min(C / 45, 1)));
+    out[1] *= k; out[2] *= k;
     return out;
   }
 
@@ -249,5 +357,8 @@
     return { lq, zones: zones.map(([a, b, sa, sb]) => ({ a, b, sa, sb: sb == null ? sa : sb })) };
   }
 
-  return { analyze, prepare, apply, swatches, synthesize, rgbToLab, labToRgb, ZONE_NAMES };
+  return {
+    analyze, prepare, apply, render, swatches, synthesize, rgbToLab, labToRgb, ZONE_NAMES,
+    prepareAdjust, normalizeAdjust, ADJUST_DEFAULTS, ADJUST_RANGES,
+  };
 });

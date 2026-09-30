@@ -61,3 +61,35 @@ test('synthesized looks have the expected shape', () => {
   assert.strictEqual(look.lq[255], 90);
   assert.strictEqual(E.swatches(look).length, 3);
 });
+
+test('neutral adjustments leave the image unchanged', () => {
+  const adj = E.prepareAdjust(E.ADJUST_DEFAULTS);
+  assert.ok(adj.identity);
+  assert.deepStrictEqual(E.render(neutral, adj, null), neutral);
+});
+
+test('adjustments move the image in the expected direction', () => {
+  const base = E.analyze(neutral);
+  const brighter = E.analyze(E.render(neutral, E.prepareAdjust({ exposure: 1 }), null));
+  assert.ok(brighter.lq[128] > base.lq[128] + 8, 'exposure brightens midtones');
+  assert.ok(brighter.lq[255] <= 100, 'highlights stay in range');
+
+  const warmer = E.analyze(E.render(neutral, E.prepareAdjust({ temperature: 60 }), null));
+  assert.ok(warmer.zones[1].b > base.zones[1].b + 3, 'temperature adds yellow');
+  assert.ok(Math.abs(warmer.lq[128] - base.lq[128]) < 3, 'white balance keeps brightness');
+
+  const lifted = E.analyze(E.render(neutral, E.prepareAdjust({ shadows: 80 }), null));
+  assert.ok(lifted.lq[64] > base.lq[64] + 3, 'shadows lift the dark quarter');
+  assert.ok(Math.abs(lifted.lq[0] - base.lq[0]) < 1, 'pure black stays black');
+
+  const gray = E.analyze(E.render(neutral, E.prepareAdjust({ saturation: -100 }), null));
+  assert.ok(gray.chroma < 1, 'saturation -100 removes color');
+});
+
+test('settings are clamped to their ranges', () => {
+  const p = E.normalizeAdjust({ exposure: 9, contrast: -500, tint: 'x', bogus: 3 });
+  assert.strictEqual(p.exposure, 2);
+  assert.strictEqual(p.contrast, -100);
+  assert.strictEqual(p.tint, 0);
+  assert.ok(!('bogus' in p));
+});

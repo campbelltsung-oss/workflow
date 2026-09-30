@@ -294,7 +294,12 @@
   function addImage({ name, type, url, source, w, h, filterId, sample }) {
     const preview = drawScaled(source, w, h, PREVIEW_MAX);
     const orig = pixels(preview);
-    const item = { id: uid(), name, type, url, source, w, h, filterId, sample: !!sample, tone: 100, color: 100, orig, srcStats: E.analyze(orig.data), els: null };
+    const baseStats = E.analyze(orig.data);
+    const item = {
+      id: uid(), name, type, url, source, w, h, filterId, sample: !!sample, tone: 100, color: 100, orig,
+      baseStats, srcStats: baseStats, adjust: { ...E.ADJUST_DEFAULTS }, adjPrep: null, statsDirty: false,
+      ai: { ctl: null, enhanced: false }, els: null,
+    };
     state.images.push(item);
     buildCard(item);
     schedule(item);
@@ -314,7 +319,7 @@
     for (const c of [before, after]) { c.width = item.orig.width; c.height = item.orig.height; }
     before.getContext('2d').putImageData(item.orig, 0, 0);
     const split = el('input', { type: 'range', min: '0', max: '100', value: '50', 'aria-label': 'Compare original and filtered', id: 'split-' + item.id });
-    const compare = el('div', { class: 'compare' }, after, before, el('div', { class: 'divider' }), el('span', { class: 'chip l', text: 'Original' }), el('span', { class: 'chip r', text: 'Filtered' }), split);
+    const compare = el('div', { class: 'compare' }, after, before, el('div', { class: 'divider' }), el('span', { class: 'chip l', text: 'Original' }), el('span', { class: 'chip r', text: 'Edited' }), split);
     split.addEventListener('input', () => compare.style.setProperty('--split', split.value + '%'));
 
     const select = el('select', { id: 'filter-' + item.id, 'aria-label': 'Filter' });
@@ -330,21 +335,79 @@
     const tone = slider('tone', 'Tone');
     const color = slider('color', 'Color');
 
+    const adjust = buildAdjustPanel(item);
+    const aiBtn = el('button', { class: 'btn small ai-btn', type: 'button', text: 'Enhance with AI', onclick: () => enhance(item) });
+    const refineBtn = el('button', { class: 'btn small', type: 'button', text: 'Refine', hidden: true, title: 'Show Claude the result and let it fine-tune the settings', onclick: () => enhance(item, { refine: true }) });
+    const stopBtn = el('button', { class: 'btn small ghost', type: 'button', text: 'Stop', hidden: true, onclick: () => item.ai.ctl && item.ai.ctl.abort() });
+    const aiNote = el('p', { class: 'ai-note', 'aria-live': 'polite' });
+    const aiRow = el('div', { class: 'ai-row ai-only' }, el('div', { class: 'ai-buttons' }, aiBtn, refineBtn, stopBtn), aiNote);
+
     const title = el('div', { class: 'card-title' },
       el('span', { class: 'name', title: item.name }, item.name, item.sample ? el('span', { class: 'sample', text: 'Sample' }) : null),
       el('span', { class: 'dims', text: `${item.w} × ${item.h}` }));
 
     const saveBtn = el('button', { class: 'btn small primary', type: 'button', text: 'Save image', onclick: () => saveOne(item) });
     const card = el('article', { class: 'card' }, compare,
-      el('div', { class: 'card-body' }, title,
-        el('div', { class: 'field select' }, el('span', { text: 'Filter' }), select),
+      el('div', { class: 'card-body' }, title, aiRow, adjust.details,
+        el('div', { class: 'group-label eyebrow', text: 'Filter' }),
+        el('div', { class: 'field select' }, el('span', { text: 'Look' }), select),
         tone.row, color.row,
         el('div', { class: 'card-actions' },
           el('button', { class: 'btn small ghost', type: 'button', text: 'Remove', onclick: () => removeImage(item) }),
           saveBtn)));
-    item.els = { card, compare, after, select, tone: tone.input, color: color.input, saveBtn };
+    item.els = { card, compare, before, after, select, tone: tone.input, color: color.input, saveBtn, aiBtn, refineBtn, stopBtn, aiNote, adjust };
     syncSliders(item);
     $('grid').append(card);
+  }
+
+  const ADJUST_GROUPS = [
+    ['Light', [['exposure', 'Exposure'], ['contrast', 'Contrast'], ['highlights', 'Highlights'], ['shadows', 'Shadows'], ['whites', 'Whites'], ['blacks', 'Blacks']]],
+    ['Color', [['temperature', 'Temp'], ['tint', 'Tint'], ['vibrance', 'Vibrance'], ['saturation', 'Saturation']]],
+  ];
+  const fmtAdjust = (k, v) => k === 'exposure'
+    ? `${v > 0 ? '+' : ''}${v.toFixed(2)}`
+    : `${v > 0 ? '+' : ''}${Math.round(v)}`;
+
+  function buildAdjustPanel(item) {
+    const inputs = {}, outputs = {};
+    const count = el('span', { class: 'changed' });
+    const reset = el('button', { class: 'btn small ghost', type: 'button', text: 'Reset', onclick: () => { setAdjust(item, E.ADJUST_DEFAULTS); setAiNote(item, ''); } });
+    const body = el('div', { class: 'adjust-body' });
+    for (const [group, keys] of ADJUST_GROUPS) {
+      body.append(el('div', { class: 'eyebrow', text: group }));
+      for (const [k, label] of keys) {
+        const [lo, hi] = E.ADJUST_RANGES[k];
+        const input = el('input', { type: 'range', min: String(lo), max: String(hi), step: k === 'exposure' ? '0.05' : '1', value: '0', id: `${k}-${item.id}` });
+        const out = el('output', { for: input.id, text: '0' });
+        input.addEventListener('input', () => { item.adjust[k] = +input.value; adjustChanged(item); });
+        input.addEventListener('dblclick', () => { item.adjust[k] = 0; adjustChanged(item); });
+        inputs[k] = input; outputs[k] = out;
+        body.append(el('label', { class: 'field', for: input.id, title: 'Double-click the slider to reset' }, el('span', { text: label }), input, out));
+      }
+    }
+    body.append(el('div', { class: 'adjust-foot' }, reset));
+    const details = el('details', { class: 'adjust' }, el('summary', {}, el('span', { text: 'Adjustments' }), count), body);
+    return { details, inputs, outputs, count };
+  }
+
+  function setAdjust(item, params) {
+    item.adjust = E.normalizeAdjust(params);
+    adjustChanged(item);
+  }
+
+  function adjustChanged(item) {
+    const { inputs, outputs, count } = item.els.adjust;
+    let changed = 0;
+    for (const k of Object.keys(inputs)) {
+      const v = item.adjust[k];
+      if (+inputs[k].value !== v) inputs[k].value = String(v);
+      outputs[k].textContent = fmtAdjust(k, v);
+      if (v !== 0) changed++;
+    }
+    count.textContent = changed ? `${changed} changed` : '';
+    item.adjPrep = changed ? E.prepareAdjust(item.adjust) : null;
+    item.statsDirty = true;
+    schedule(item);
   }
 
   function syncSliders(item) {
@@ -370,24 +433,32 @@
     if (!f) return null;
     return E.prepare(srcStats, f.stats, { tone: item.tone / 100, color: item.color / 100 });
   }
+  // The look is matched against the adjusted image, so re-measure after edits
+  function currentStats(item) {
+    if (item.statsDirty) {
+      item.srcStats = item.adjPrep ? E.analyze(item.orig.data, item.adjPrep) : item.baseStats;
+      item.statsDirty = false;
+    }
+    return item.srcStats;
+  }
   function renderPreview(item) {
-    const prep = prepFor(item, item.srcStats);
+    const prep = filterById(item.filterId) ? prepFor(item, currentStats(item)) : null;
     const out = new ImageData(item.orig.width, item.orig.height);
-    if (prep) E.apply(item.orig.data, prep, out.data); else out.data.set(item.orig.data);
+    E.render(item.orig.data, item.adjPrep, prep, out.data);
     item.els.after.getContext('2d').putImageData(out, 0, 0);
   }
 
   async function renderFull(item) {
     const c = drawScaled(item.source, item.w, item.h, Infinity);
     const g = c.getContext('2d', { willReadFrequently: true });
-    const prep = prepFor(item, item.srcStats);
-    if (prep) {
+    const prep = filterById(item.filterId) ? prepFor(item, currentStats(item)) : null;
+    if (prep || item.adjPrep) {
       // Process in bands so very large photos don't need a second full copy
       const band = Math.max(1, Math.floor(4000000 / c.width));
       for (let y = 0; y < c.height; y += band) {
         const h = Math.min(band, c.height - y);
         const d = g.getImageData(0, y, c.width, h);
-        E.apply(d.data, prep, d.data);
+        E.render(d.data, item.adjPrep, prep, d.data);
         g.putImageData(d, 0, y);
         await nextFrame();
       }
@@ -395,7 +466,8 @@
     const png = item.type === 'image/png';
     const blob = await new Promise((r) => c.toBlob(r, png ? 'image/png' : 'image/jpeg', 0.92));
     const f = filterById(item.filterId);
-    const filename = `${baseName(item.name)}${f ? '-' + slug(f.name) : ''}.${png ? 'png' : 'jpg'}`;
+    const suffix = f ? '-' + slug(f.name) : item.adjPrep ? '-edited' : '';
+    const filename = `${baseName(item.name)}${suffix}.${png ? 'png' : 'jpg'}`;
     return { blob, filename };
   }
 
@@ -438,6 +510,185 @@
       const out = await zip.generateAsync({ type: 'blob' });
       if (await saveFile('look-lab-images.zip', out)) toast(`Saved ${items.length} images as a zip.`);
     });
+  }
+
+  // ---------- AI enhance ----------
+  // Claude looks at the photo plus its measurements and chooses adjustment
+  // settings. It never touches pixels: the engine applies the settings to
+  // the full-resolution original on this device.
+  const AIMS = {
+    natural: 'Aim for a natural, true-to-life correction: fix exposure, white balance and contrast problems and keep the scene’s mood. Do not add a stylized look.',
+    polished: 'Aim for a polished, professional result: accurate color, clean contrast, bright but unclipped highlights, open shadows, and a little extra pop.',
+    bold: 'Aim for a striking, vivid result: strong contrast and rich color that still looks believable.',
+  };
+  const SETTINGS_HELP = [
+    '- exposure: -2 to 2 (EV stops)',
+    '- contrast: -100 to 100',
+    '- highlights: -100 to 100 (below 0 recovers bright areas)',
+    '- shadows: -100 to 100 (above 0 opens up dark areas)',
+    '- whites, blacks: -100 to 100 (move the white and black points)',
+    '- temperature: -100 (cooler, bluer) to 100 (warmer, more yellow)',
+    '- tint: -100 (greener) to 100 (more magenta)',
+    '- vibrance: -100 to 100 (boosts muted colors most, protects already-saturated ones)',
+    '- saturation: -100 to 100 (all colors equally; -100 is black and white)',
+  ].join('\n');
+  const JSON_SHAPE = '{"diagnosis": "One short sentence", "adjustments": {"exposure": 0.2, "contrast": 10, "highlights": -20, "shadows": 15, "whites": 5, "blacks": -5, "temperature": 0, "tint": 0, "vibrance": 10, "saturation": 0}}';
+
+  const ai = { sample: null, ready: false, batch: null };
+  const samplePromise = window.claude && window.claude.use
+    ? window.claude.use('sample').catch(() => null)
+    : Promise.resolve(null);
+
+  async function initAI() {
+    const sample = await samplePromise;
+    const limits = sample ? await sample.limits().catch(() => null) : null;
+    if (!sample) return setAIAvailable(false, 'AI enhance works when Look Lab is opened in Claude.');
+    if (!limits || !limits.images) return setAIAvailable(false, 'AI enhance isn’t available in this view.');
+    ai.sample = sample;
+    ai.maxImages = limits.images.maxCount || 1;
+    setAIAvailable(true);
+  }
+  function setAIAvailable(on, note) {
+    ai.ready = on;
+    document.body.dataset.ai = on ? 'on' : 'off';
+    $('ai-off-note').textContent = on ? '' : note || '';
+  }
+
+  function describeStats(st) {
+    const q = (pct) => Math.round(st.lq[Math.round((pct / 100) * (st.lq.length - 1))]);
+    const z = st.zones.map((zn, i) => `${E.ZONE_NAMES[i].toLowerCase()} a=${zn.a.toFixed(1)} b=${zn.b.toFixed(1)}`).join(', ');
+    return [
+      `- Lightness percentiles (L 0-100): 1%=${q(1)}, 5%=${q(5)}, 25%=${q(25)}, 50%=${q(50)}, 75%=${q(75)}, 95%=${q(95)}, 99%=${q(99)}`,
+      `- Clipped: ${(st.clipLow * 100).toFixed(1)}% near black, ${(st.clipHigh * 100).toFixed(1)}% near white`,
+      `- Average tint by tone (a: + magenta / - green, b: + yellow / - blue): ${z}`,
+      `- Mean colorfulness (chroma): ${st.chroma.toFixed(1)}`,
+    ].join('\n');
+  }
+
+  function buildPrompt(item, refine) {
+    const aim = AIMS[$('ai-aim').value] || AIMS.natural;
+    const f = filterById(item.filterId);
+    const filterNote = f ? `After your correction, a creative color filter will be applied on top, so aim for a clean, well-balanced base rather than a stylized look.` : '';
+    if (!refine) {
+      return `You are an expert photo editor. Improve the attached photo using only the global adjustments listed below. ${aim} ${filterNote}
+
+Measurements of the photo:
+${describeStats(item.baseStats)}
+
+Adjustments (0 means no change):
+${SETTINGS_HELP}
+
+Judge the photo itself first and use the measurements to confirm. Keep things that should be neutral (white walls, clouds, gray stone) neutral unless the light is meant to be warm or cool, as at sunset. Keep skin tones natural. Avoid clipping highlights or crushing shadows. Leave a setting at 0 when it needs no change; most good corrections stay within ±40.
+
+Reply with only JSON in this shape, with a diagnosis naming what you fixed:
+${JSON_SHAPE}`;
+    }
+    const adjStats = E.analyze(item.orig.data, item.adjPrep);
+    return `You are an expert photo editor reviewing an edit. Image 1 is the original photo. Image 2 is the edited version, made with these settings:
+${JSON.stringify(item.adjust)}
+${aim} ${filterNote}
+
+Measurements of the edited version:
+${describeStats(adjStats)}
+
+Look for remaining problems: color casts, crushed shadows, clipped highlights, too much or too little contrast or saturation, unnatural skin. Return the complete improved settings (the full values, not changes) using these ranges:
+${SETTINGS_HELP}
+
+If the edit already looks right, return the same settings. Reply with only JSON in this shape, with a diagnosis naming what you changed:
+${JSON_SHAPE}`;
+  }
+
+  const canvasBlob = (c) => new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+  async function adjustedOnlyBlob(item) {
+    const c = document.createElement('canvas');
+    c.width = item.orig.width; c.height = item.orig.height;
+    const out = new ImageData(item.orig.width, item.orig.height);
+    E.render(item.orig.data, item.adjPrep, null, out.data);
+    c.getContext('2d').putImageData(out, 0, 0);
+    return canvasBlob(c);
+  }
+
+  function setAiNote(item, text, kind) {
+    item.els.aiNote.textContent = text;
+    item.els.aiNote.dataset.kind = kind || '';
+  }
+
+  const AI_ERRORS = {
+    rate_limited: 'Claude is busy or your usage limit was reached. Try again in a little while.',
+    session_expired: 'Sign in to Claude again, then retry.',
+    image_rejected: 'This image couldn’t be sent to Claude. Try a JPEG or PNG under 20 MB.',
+    refused: 'Claude declined to edit this image.',
+    invalid_json: 'Claude’s answer couldn’t be read. Try again.',
+    empty_completion: 'Claude didn’t return settings. Try again.',
+  };
+  const AI_FATAL = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'];
+
+  async function enhance(item, { refine = false } = {}) {
+    if (!ai.ready || item.ai.ctl) return;
+    const refineWithImages = refine && ai.maxImages >= 2;
+    const ctl = new AbortController();
+    item.ai.ctl = ctl;
+    const { aiBtn, refineBtn, stopBtn, compare } = item.els;
+    aiBtn.disabled = refineBtn.disabled = true;
+    stopBtn.hidden = false;
+    compare.classList.add('thinking');
+    setAiNote(item, refine ? 'Claude is reviewing the edit…' : 'Claude is looking at the photo…', 'busy');
+    try {
+      const images = [await canvasBlob(item.els.before)];
+      if (refineWithImages) images.push(await adjustedOnlyBlob(item));
+      const prompt = buildPrompt(item, refine && refineWithImages);
+      const opts = { images, signal: ctl.signal };
+      if (refine) opts.cache = false; // a refine should always take a fresh look
+      const res = await ai.sample.json(prompt, opts);
+      if (!res || typeof res !== 'object' || !res.adjustments || typeof res.adjustments !== 'object') {
+        throw { code: 'invalid_json' };
+      }
+      setAdjust(item, res.adjustments);
+      item.ai.enhanced = true;
+      const diagnosis = typeof res.diagnosis === 'string' ? res.diagnosis.trim().slice(0, 240) : '';
+      setAiNote(item, diagnosis || 'Settings applied.', 'done');
+      item.els.adjust.details.open = true;
+      return true;
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'cancelled') setAiNote(item, 'Stopped.', '');
+      else if (AI_FATAL.includes(code)) {
+        setAIAvailable(false, code === 'not_granted' ? 'AI enhance needs your permission to use Claude. Reload the page to be asked again.' : 'AI enhance isn’t available in this view.');
+        setAiNote(item, '', '');
+      } else setAiNote(item, AI_ERRORS[code] || 'Claude couldn’t be reached. Try again.', 'error');
+      return code === 'cancelled' ? null : false;
+    } finally {
+      item.ai.ctl = null;
+      aiBtn.disabled = refineBtn.disabled = false;
+      refineBtn.hidden = !item.ai.enhanced;
+      stopBtn.hidden = true;
+      compare.classList.remove('thinking');
+    }
+  }
+
+  async function enhanceAll() {
+    const btn = $('enhance-all');
+    if (ai.batch) { ai.batch.stop = true; state.images.forEach((i) => i.ai.ctl && i.ai.ctl.abort()); return; }
+    const items = state.images.slice();
+    if (!items.length) { toast('Add images first.'); return; }
+    ai.batch = { stop: false };
+    btn.textContent = 'Stop';
+    let done = 0;
+    items.forEach((i) => setAiNote(i, 'Waiting…', 'busy'));
+    try {
+      for (const item of items) {
+        if (ai.batch.stop || !ai.ready) break;
+        if (!state.images.includes(item)) continue;
+        const ok = await enhance(item);
+        if (ok) done++;
+        if (ok === false && !ai.ready) break;
+      }
+    } finally {
+      items.forEach((i) => { if (i.els.aiNote.textContent === 'Waiting…') setAiNote(i, '', ''); });
+      ai.batch = null;
+      btn.textContent = 'Enhance all with AI';
+    }
+    if (done) toast(`Enhanced ${done} of ${items.length} ${items.length === 1 ? 'image' : 'images'}.`);
   }
 
   function updateCount() {
@@ -505,6 +756,12 @@
   $('add-images').addEventListener('click', () => $('img-input').click());
   $('img-input').addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
   $('save-all').addEventListener('click', saveAll);
+  $('enhance-all').addEventListener('click', enhanceAll);
+  try {
+    const savedAim = localStorage.getItem('looklab.aim');
+    if (savedAim && AIMS[savedAim]) $('ai-aim').value = savedAim;
+  } catch (_) { /* storage unavailable */ }
+  $('ai-aim').addEventListener('change', (e) => { try { localStorage.setItem('looklab.aim', e.target.value); } catch (_) { /* ignore */ } });
   $('apply-all').addEventListener('change', (e) => {
     const id = e.target.value;
     if (!id) return;
@@ -519,6 +776,7 @@
   document.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
 
   renderAll();
+  initAI();
   const sample = sampleCanvas();
   const tealOrange = state.filters.find((f) => f.id === 'ex-teal-orange') || state.filters[0];
   addImage({ name: 'sample-lake.jpg', type: 'image/jpeg', url: null, source: sample, w: sample.width, h: sample.height, filterId: tealOrange ? tealOrange.id : '', sample: true });
